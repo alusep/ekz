@@ -1,17 +1,22 @@
+"""FastAPI-приложение: логин с капчей, админка."""
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from app import auth, captcha
 
 app = FastAPI(title="ДЭ 2026 API", version="1.0.0",
               description="Информационная система для демонстрационного экзамена")
 
+# Раздаём картинки капчи по /static/...
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
+
 
 class LoginIn(BaseModel):
     username: str
     password: str
     sid: str
-    order: list[int]
+    order: list[str]
 
 
 # ── API ─────────────────────────────────────────
@@ -61,7 +66,7 @@ def block_user(username: str, value: bool, token: str):
     return {"ok": ok, "message": msg}
 
 
-# ── HTML ────────────────────────────────────────
+# ── HTML: страница входа ────────────────────────
 LOGIN_PAGE = """<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8">
 <title>Вход</title><style>
 body{font-family:sans-serif;background:#2a5298;display:flex;justify-content:center;
@@ -71,11 +76,13 @@ body{font-family:sans-serif;background:#2a5298;display:flex;justify-content:cent
 h2{margin:0 0 20px;color:#2a5298}
 input{width:100%;padding:10px;margin-bottom:12px;border:1px solid #ccc;
       border-radius:8px;box-sizing:border-box;font-size:14px}
-.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-bottom:14px}
-.piece{aspect-ratio:1;border-radius:8px;cursor:pointer;display:flex;
-       align-items:center;justify-content:center;color:#fff;font-size:32px;
-       font-weight:bold;border:3px solid transparent}
-.piece.sel{border-color:#2a5298}
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:0;margin-bottom:14px;
+      width:100%;aspect-ratio:1;overflow:hidden;border-radius:8px}
+.piece{width:100%;height:100%;cursor:pointer;
+       background-size:100% 100%;background-repeat:no-repeat;
+       outline:3px solid transparent;outline-offset:-3px;transition:outline-color .15s}
+.piece:hover{outline-color:rgba(42,82,152,.4)}
+.piece.sel{outline-color:#2a5298}
 button{width:100%;padding:11px;background:#2a5298;color:#fff;border:0;
        border-radius:8px;font-size:15px;cursor:pointer}
 button:hover{background:#1e3c72}
@@ -92,8 +99,6 @@ button:hover{background:#1e3c72}
 </div>
 <script>
 let sid, order=[], sel=null;
-const COLORS=['#ff6b6b','#feca57','#48dbfb','#1dd1a1'];
-const SYMS=['1','2','3','4'];
 
 async function load(){
   const r = await fetch('/api/captcha/new'); const d = await r.json();
@@ -101,11 +106,10 @@ async function load(){
 }
 function draw(){
   const c = document.getElementById('cap'); c.innerHTML='';
-  order.forEach((v,i)=>{
+  order.forEach((name,i)=>{
     const d = document.createElement('div');
     d.className = 'piece' + (sel===i?' sel':'');
-    d.style.background = COLORS[v];
-    d.textContent = SYMS[v];
+    d.style.backgroundImage = "url('/static/captcha/" + name + "')";
     d.onclick = ()=>click(i);
     c.appendChild(d);
   });
@@ -136,6 +140,7 @@ load();
 </script></body></html>"""
 
 
+# ── HTML: админка ───────────────────────────────
 ADMIN_PAGE = """<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8">
 <title>Админ</title><style>
 body{font-family:sans-serif;background:#f0f2f8;padding:40px;margin:0}
@@ -170,10 +175,10 @@ async function load(){
   const tb = document.getElementById('rows'); tb.innerHTML='';
   d.forEach(u=>{
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td>${u.username}</td><td>${u.role}</td>
-      <td>${u.blocked?'Заблокирован':'Активен'}</td>
-      <td><button class="${u.blocked?'g':'b'}" onclick="bl('${u.username}',${!u.blocked})">
-        ${u.blocked?'Разблокировать':'Блокировать'}</button></td>`;
+    tr.innerHTML='<td>'+u.username+'</td><td>'+u.role+'</td>'+
+      '<td>'+(u.blocked?'Заблокирован':'Активен')+'</td>'+
+      '<td><button class="'+(u.blocked?'g':'b')+'" onclick="bl(\\''+u.username+'\\', '+(!u.blocked)+')">'+
+      (u.blocked?'Разблокировать':'Блокировать')+'</button></td>';
     tb.appendChild(tr);
   });
 }
@@ -188,7 +193,7 @@ async function add(){
   if(d.ok){document.getElementById('nu').value='';document.getElementById('np').value='';load();}
 }
 async function bl(name,val){
-  await fetch(`/api/admin/block?username=${name}&value=${val}&token=${t}`,{method:'POST'});
+  await fetch('/api/admin/block?username='+name+'&value='+val+'&token='+t,{method:'POST'});
   load();
 }
 load();
@@ -198,6 +203,7 @@ load();
 @app.get("/", response_class=HTMLResponse)
 def index():
     return LOGIN_PAGE
+
 
 @app.get("/admin", response_class=HTMLResponse)
 def admin():
