@@ -1,63 +1,48 @@
-import hashlib
-import secrets
+import hashlib, secrets
 from dataclasses import dataclass
-
 
 @dataclass
 class User:
     username: str
     password_hash: str
-    role: str
-    is_blocked: bool = False
-    failed_attempts: int = 0
+    role: str = "user"
+    blocked: bool = False
+    fails: int = 0
 
-
-def hash_password(password: str) -> str:
-    return hashlib.sha256(password.encode("utf-8")).hexdigest()
-
+def h(p): return hashlib.sha256(p.encode()).hexdigest()
 
 users = {
-    "admin": User(
-        username="admin",
-        password_hash=hash_password("admin123"),
-        role="admin",
-    ),
-    "user": User(
-        username="user",
-        password_hash=hash_password("user123"),
-        role="user",
-    ),
+    "admin": User("admin", h("admin123"), "admin"),
+    "user":  User("user",  h("user123")),
 }
+tokens = {}
 
+def login(username, password):
+    u = users.get(username)
+    if not u: return None, "not_found"
+    if u.blocked: return None, "blocked"
+    if u.password_hash != h(password):
+        u.fails += 1
+        if u.fails >= 3: u.blocked = True
+        return None, "blocked" if u.blocked else "invalid"
+    u.fails = 0
+    return u, None
 
-active_tokens: dict[str, str] = {}
+def make_token(u):
+    t = secrets.token_urlsafe(16)
+    tokens[t] = u.username
+    return t
 
+def current(token):
+    return users.get(tokens.get(token, ""))
 
-def authenticate_user(username: str, password: str) -> User | None:
-    user = users.get(username)
+def add_user(name, pwd, role="user"):
+    if name in users: return False, "Пользователь уже существует"
+    users[name] = User(name, h(pwd), role)
+    return True, "Пользователь добавлен"
 
-    if user is None:
-        return None
-
-    if user.is_blocked:
-        return None
-
-    if user.password_hash != hash_password(password):
-        return None
-
-    return user
-
-
-def create_token(username: str) -> str:
-    token = secrets.token_urlsafe(32)
-    active_tokens[token] = username
-    return token
-
-
-def get_user_by_token(token: str) -> User | None:
-    username = active_tokens.get(token)
-
-    if username is None:
-        return None
-
-    return users.get(username)
+def set_blocked(name, blocked):
+    if name not in users: return False, "Не найден"
+    users[name].blocked = blocked
+    if not blocked: users[name].fails = 0
+    return True, "Обновлено"
